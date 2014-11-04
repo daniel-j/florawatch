@@ -7,14 +7,14 @@
 #include "OneButton.h"
 
 
-const unsigned long sleepTimeout = 5*60; // in seconds, set to 0 to disable
+const unsigned long sleepTimeout = 90; // in seconds, set to 0 to disable
 
 const unsigned int neoPin = 9;
 const unsigned int buttonPin = 6;
 
 const unsigned int ringSize = 16;
 const int ringOffset = 4;
-const int northOffset = 3;
+const int northOffset = 4;
 const bool compassInvert = true;
 
 
@@ -32,6 +32,7 @@ int currentSubmenu = 0;
 
 int currentHour, currentMinute, currentDay, currentMonth, currentYear, monthMaxDays;
 int compassDirection = -1;
+float currentHeading = 0.0;
 
 bool flashTimeout = false;
 unsigned long lastFlash = 0;
@@ -123,7 +124,16 @@ void wakeUp() {
 	keepActive();
 }
 
+void smooth(float data, float filterVal, float &smoothedVal) {
 
+	if (filterVal > 1) {
+		filterVal = 1.0;
+	} else if (filterVal < 0) {
+		filterVal = 0.0;
+	}
+
+	smoothedVal = (data * (1 - filterVal)) + (smoothedVal  *  filterVal);
+}
 
 void setup() {
 	Serial.begin(9600);
@@ -140,8 +150,14 @@ void setup() {
 	lsm.init();
 	lsm.enableDefault();
 
-	lsm.m_min = (LSM303::vector<int16_t>){  -512,   -704,   -335};
-	lsm.m_max = (LSM303::vector<int16_t>){  +591,   +502,   +691};
+	//min: {  -512,   -704,   -335}    max: {  +591,   +502,   +691}
+	//min: {  -534,   -681,   -373}    max: {  +594,   +427,   +624}
+	//min: {  -674,   -837,   -335}    max: {  +507,   +261,   +651}
+	//min: {  -655,   -862,   -344}    max: {  +491,   +283,   +642}
+
+
+	lsm.m_min = (LSM303::vector<int16_t>){  -655,   -862,   -344};
+	lsm.m_max = (LSM303::vector<int16_t>){  +491,   +283,   +642};
 
 	keepActive();
 }
@@ -151,8 +167,6 @@ void loop() {
 	syncMillis();
 	flashTimeout = (millis() - lastFlash) % 1000 < 500;
 	checkSleep();
-
-	Serial.println(digitalRead(buttonPin));
 
 
 	if (!isSleeping) {
@@ -329,10 +343,17 @@ void showAnalog() {
 
 	int minuteled = minute()*ringSize/60;
 	int secondled = second()*ringSize/60;
+
+
 	
 	
 	clearPixels();
 	// GRB order
+
+	if (flashTimeout) {
+		showLine(15, 2, ring.Color(1, 1, 1));
+	}
+
 	pixels[pixelPos(secondled)*3] += 8;
 	pixels[pixelPos(secondled)*3+1] += 10;
 
@@ -370,6 +391,10 @@ void showAdjAnalog(int type) {
 	int minuteled = currentMinute*ringSize/60;
 
 	clearPixels();
+
+	if (flashTimeout) {
+		showLine(15, 2, ring.Color(1, 1, 1));
+	}
 
 	int hchannel = currentHour < 12? 1 : 0;
 
@@ -453,17 +478,23 @@ void showAdjBinary(int type) {
 }
 
 void showCompass() {
-	int dir = lsm.heading();
+
+	//smooth(lsm.heading(), 0.001, currentHeading);
+	currentHeading = lsm.heading();
+	Serial.println(currentHeading);
+	
 	if (compassInvert) {
-		dir = 360-dir;
+		currentHeading = 360-currentHeading;
 	}
 
 	clearPixels();
 
-	float pixel = dir*ringSize/360.0+northOffset;
+	float pixel = currentHeading*ringSize/360.0+northOffset;
 
+	setPixel(pixel, ring.Color(20, 0, 0));
+	setPixel(pixel+ringSize/2, ring.Color(10, 10, 10));
 
-	setPixel(floor(pixel-1.5), ring.Color(2, 0, 0));
+	/*setPixel(floor(pixel-1.5), ring.Color(2, 0, 0));
 	setPixel(floor(pixel-0.5), ring.Color(20, 0, 0));
 	setPixel(floor(pixel+0.5), ring.Color(20, 0, 0));
 	setPixel(floor(pixel+1.5), ring.Color(2, 0, 0));
@@ -471,12 +502,13 @@ void showCompass() {
 	setPixel(floor(pixel+ringSize/2-1.5), ring.Color(2, 2, 2));
 	setPixel(floor(pixel+ringSize/2-0.5), ring.Color(10, 10, 10));
 	setPixel(floor(pixel+ringSize/2+0.5), ring.Color(10, 10, 10));
-	setPixel(floor(pixel+ringSize/2+1.5), ring.Color(2, 2, 2));
+	setPixel(floor(pixel+ringSize/2+1.5), ring.Color(2, 2, 2));*/
 
 	if (compassDirection != -1) {
-		pixel = (360+dir-compassDirection)*ringSize/360.0+northOffset;
+		Serial.println(compassDirection);
+		pixel = (360+currentHeading-compassDirection)*ringSize/360.0;
 		setPixel(pixel, ring.Color(0, 20, 0));
-		setPixel(pixel+ringSize/2, ring.Color(0, 20, 20));
+		setPixel(pixel+ringSize/2, ring.Color(0, 20, 10));
 	}
 
 	ring.show();
